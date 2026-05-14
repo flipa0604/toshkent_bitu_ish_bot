@@ -108,7 +108,12 @@ T = {
         "cancel": "Anketa bekor qilindi. Qayta o'tish uchun /start yozing.",
         "send_fail": "⚠️ HR chatga yuborib bo'lmadi. Bot qo'shilgan/adminga aylantirilganini va HR_CHAT_ID to'g'ri ekanini tekshiring.",
 
-        "directions": ["Call оператор","Менеджер по продажам","SMM менеджер","Мобилограф","Таргетолог","Тех поддержка"],
+        "direction_categories": {
+            "Rahbariyat": ["Tyutor", "Texnik xodim", "Rahbarlik", "O'quv bo'limi", "Boshqa"],
+            "O'qituvchi": ["Umumta'lim Fanlar", "Klinik oldi Fanlar", "Klinik Fanlar"],
+        },
+        "ask_sub_direction": "<b>{cat}</b> bo'limidan qaysi yo'nalish?",
+        "back": "◀ Orqaga",
         "yes": "Ha",
         "no": "Yo'q",
 
@@ -195,7 +200,12 @@ T = {
         "cancel": "Анкета сброшена. Наберите /start, чтобы пройти заново.",
         "send_fail": "⚠️ Не удалось отправить анкету в HR-чат. Проверьте, что бот добавлен/админ и HR_CHAT_ID верный.",
 
-        "directions": ["Call оператор","Менеджер по продажам","SMM менеджер","Мобилограф","Таргетолог","Тех поддержка"],
+        "direction_categories": {
+            "Rahbariyat": ["Tyutor", "Texnik xodim", "Rahbarlik", "O'quv bo'limi", "Boshqa"],
+            "O'qituvchi": ["Umumta'lim Fanlar", "Klinik oldi Fanlar", "Klinik Fanlar"],
+        },
+        "ask_sub_direction": "<b>{cat}</b> — какое направление?",
+        "back": "◀ Назад",
         "yes": "Да",
         "no": "Нет",
 
@@ -378,9 +388,22 @@ class HRForm(StatesGroup):
 
 # ====== KEYBOARDS ======
 
+def _chunk2(items):
+    return [items[i:i+2] for i in range(0, len(items), 2)]
+
 def kbd_directions() -> InlineKeyboardMarkup:
-    opts = T[LANG]["directions"]
-    rows = [[InlineKeyboardButton(text=opt, callback_data=f"dir:{opt}")] for opt in opts]
+    cats = list(T[LANG]["direction_categories"].keys())
+    rows = []
+    for pair in _chunk2(cats):
+        rows.append([InlineKeyboardButton(text=c, callback_data=f"cat:{c}") for c in pair])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def kbd_subdirections(category: str) -> InlineKeyboardMarkup:
+    subs = T[LANG]["direction_categories"].get(category, [])
+    rows = []
+    for pair in _chunk2(subs):
+        rows.append([InlineKeyboardButton(text=s, callback_data=f"dir:{category}|{s}") for s in pair])
+    rows.append([InlineKeyboardButton(text=T[LANG]["back"], callback_data="cat_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def kbd_edu() -> InlineKeyboardMarkup:
@@ -626,9 +649,28 @@ async def start(message: Message, state: FSMContext):
 async def here(message: Message):
     await message.answer(t("here", chat_id=message.chat.id))
 
+@dp.callback_query(HRForm.DIRECTION, F.data.startswith("cat:"))
+async def choose_category(cb: CallbackQuery, state: FSMContext):
+    category = cb.data.split(":", 1)[1]
+    await cb.message.edit_text(
+        t("ask_sub_direction", cat=category),
+        reply_markup=kbd_subdirections(category),
+    )
+    await cb.answer()
+
+@dp.callback_query(HRForm.DIRECTION, F.data == "cat_back")
+async def category_back(cb: CallbackQuery, state: FSMContext):
+    await cb.message.edit_text(t("hello"), reply_markup=kbd_directions())
+    await cb.answer()
+
 @dp.callback_query(F.data.startswith("dir:"))
 async def choose_direction(cb: CallbackQuery, state: FSMContext):
-    direction = cb.data.split(":", 1)[1]
+    payload = cb.data.split(":", 1)[1]
+    if "|" in payload:
+        category, sub = payload.split("|", 1)
+        direction = f"{category} → {sub}"
+    else:
+        direction = payload
     await state.update_data(direction=direction)
     await cb.message.edit_reply_markup()
     await cb.message.answer(t("ask_full_name"))
